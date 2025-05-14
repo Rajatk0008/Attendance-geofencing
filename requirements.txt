@@ -1,0 +1,7 @@
+Flask
+Flask-SQLAlchemy
+psycopg2
+python-dotenv
+openpyxl
+flask-migrate
+pandas

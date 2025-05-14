@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Admin Panel - Attendance Records</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background: #f4f4f4;
+            padding: 20px;
+        }
+        h1 {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        h2 {
+            margin-top: 30px;
+        }
+        .download-btn {
+            background-color: #28a745;
+            color: white;
+            padding: 10px 20px;
+            text-decoration: none;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+        .download-btn:hover {
+            background-color: #218838;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            background: #fff;
+            margin-bottom: 40px;
+            box-shadow: 0 0 5px rgba(0,0,0,0.1);
+        }
+        th, td {
+            padding: 10px;
+            border: 1px solid #ddd;
+            text-align: left;
+        }
+        th {
+            background: #333;
+            color: white;
+        }
+        tr:nth-child(even) {
+            background: #f9f9f9;
+        }
+    </style>
+</head>
+<body>
+    <h1>
+        📋 Admin Panel - Attendance Records
+        <a class="download-btn" href="{{ url_for('routes_bp.download_attendance') }}">⬇️ Download Excel</a>
+    </h1>
+
+    {% for user in user_data %}
+        <h2>{{ user.name }}</h2>
+        {% if user.records %}
+            <table>
+                <thead>
+                    <tr>
+                        <th>Punch In</th>
+                        <th>Punch Out</th>
+                        <th>IP Address</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for record in user.records %}
+                        <tr>
+                            <td>{{ record.punch_in }}</td>
+                            <td>{{ record.punch_out or '---' }}</td>
+                            <td>{{ record.device_ip }}</td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        {% else %}
+            <p>No attendance records found.</p>
+        {% endif %}
+    {% endfor %}
+</body>
+</html>

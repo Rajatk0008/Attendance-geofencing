@@ -1,0 +1,95 @@
+    <!DOCTYPE html>
+    <html>
+    <head>
+    <title>Geofencing Attendance</title>
+    <style>
+        .btn {
+        padding: 10px 15px;
+        background-color: #007BFF;
+        color: white;
+        text-decoration: none;
+        border-radius: 5px;
+        border: none;
+        cursor: pointer;
+        margin: 5px;
+        }
+        .btn:hover {
+        background-color: #0056b3;
+        }
+        .btn:disabled {
+        background-color: #999;
+        cursor: not-allowed;
+        }
+    </style>
+    </head>
+    <body>
+    <h1>Mark Attendance</h1>
+
+    <label for="name">Enter your name:</label>
+    <input type="text" id="name" placeholder="e.g., Alice" required>
+    <br><br>
+
+    <button class="btn" id="punchInBtn" onclick="markAttendance('punch_in')">Punch In</button>
+    <button class="btn" id="punchOutBtn" onclick="markAttendance('punch_out')">Punch Out</button>
+    <p id="status"></p>
+    <p><a href="/register">Register a new user</a></p>
+
+    <script>
+        function markAttendance(actionType) {
+        const nameInput = document.getElementById('name');
+        const name = nameInput.value.trim().toLowerCase();
+        const statusText = document.getElementById("status");
+        const punchInBtn = document.getElementById("punchInBtn");
+        const punchOutBtn = document.getElementById("punchOutBtn");
+
+        if (!name) {
+            statusText.innerText = "❗ Please enter your name.";
+            return;
+        }
+
+        if (!navigator.geolocation) {
+            statusText.innerText = "❌ Geolocation is not supported.";
+            return;
+        }
+
+        // Disable buttons while processing
+        punchInBtn.disabled = true;
+        punchOutBtn.disabled = true;
+        statusText.innerText = "📍 Getting location...";
+
+        navigator.geolocation.getCurrentPosition((position) => {
+            const lat = position.coords.latitude;
+            const lon = position.coords.longitude;
+
+            fetch('/attendance', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                name: name,
+                latitude: lat,
+                longitude: lon,
+                action: actionType
+            })
+            })
+            .then(res => res.json())
+            .then(data => {
+            statusText.innerText = data.message;
+            })
+            .catch(err => {
+            statusText.innerText = "⚠️ Server error: " + err;
+            })
+            .finally(() => {
+            // Re-enable buttons after request completes
+            punchInBtn.disabled = false;
+            punchOutBtn.disabled = false;
+            });
+
+        }, () => {
+            statusText.innerText = "⚠️ Location access denied.";
+            punchInBtn.disabled = false;
+            punchOutBtn.disabled = false;
+        });
+        }
+    </script>
+    </body>
+    </html>

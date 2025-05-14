@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Register User</title>
+</head>
+<body>
+  <h1>User Registration</h1>
+
+  <form method="POST" action="/register">
+    <label for="name">Enter your name:</label><br>
+    <input type="text" id="name" name="name" required><br><br>
+    <input type="submit" value="Register">
+  </form>
+
+  <br>
+  <a href="/">Go to Attendance Page</a>
+
+  {% if message %}
+    <script>
+    
+      alert("{{ message }}");
+    </script>
+  {% endif %}
+</body>
+</html>
