@@ -1,9 +1,47 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import DatePicker from 'react-datepicker';
+import 'react-datepicker/dist/react-datepicker.css';
+import { format } from 'date-fns';
 
 const GeofencingAttendance = () => {
   const [name, setName] = useState('');
   const [status, setStatus] = useState('');
   const [loading, setLoading] = useState(false);
+
+  // New states for calendar and attendance times
+  const [selectedDate, setSelectedDate] = useState(new Date());
+  const [attendanceTimes, setAttendanceTimes] = useState({ punch_in: null, punch_out: null });
+
+  // Fetch attendance info for the user on selectedDate whenever name or selectedDate changes
+  useEffect(() => {
+    if (!name.trim()) {
+      setAttendanceTimes({ punch_in: null, punch_out: null });
+      return;
+    }
+
+    const fetchAttendance = async () => {
+      const formattedDate = format(selectedDate, 'yyyy-MM-dd');
+
+      try {
+        const res = await fetch(`${import.meta.env.VITE_API_URL}/api/admin/user-attendance?name=${encodeURIComponent(name.trim().toLowerCase())}&date=${formattedDate}`);
+        if (!res.ok) {
+          setAttendanceTimes({ punch_in: null, punch_out: null });
+          return;
+        }
+        const data = await res.json();
+
+        setAttendanceTimes({
+          punch_in: data.punch_in || null,
+          punch_out: data.punch_out || null,
+        });
+      } catch (err) {
+        console.error('Error fetching attendance times:', err);
+        setAttendanceTimes({ punch_in: null, punch_out: null });
+      }
+    };
+
+    fetchAttendance();
+  }, [name, selectedDate]);
 
   const handleAttendance = async (actionType) => {
     const trimmedName = name.trim().toLowerCase();
@@ -27,7 +65,6 @@ const GeofencingAttendance = () => {
         const lon = position.coords.longitude;
 
         try {
-          console.log("hi")
           const response = await fetch(`${import.meta.env.VITE_API_URL}/api/attendance`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -38,9 +75,14 @@ const GeofencingAttendance = () => {
               action: actionType,
             }),
           });
-          console.log(response)
+
           const data = await response.json();
           setStatus(data.message);
+
+          // Refetch attendance times for today after punch in/out
+          if (actionType === 'punch_in' || actionType === 'punch_out') {
+            setSelectedDate(new Date()); // reset to today (optional)
+          }
         } catch (error) {
           setStatus("⚠️ Server error: " + error.message);
         } finally {
@@ -68,7 +110,24 @@ const GeofencingAttendance = () => {
         required
         style={{ padding: '8px', marginTop: '5px', width: '250px' }}
       />
-      <br /><br />
+
+      {/* Calendar */}
+      <div style={{ margin: '20px 0' }}>
+        <label><strong>Select Date:</strong></label><br />
+        <DatePicker
+          selected={selectedDate}
+          onChange={(date) => setSelectedDate(date)}
+          dateFormat="yyyy-MM-dd"
+          maxDate={new Date()}
+        />
+      </div>
+
+      {/* Show punch in/out times for selected date */}
+      <div style={{ marginBottom: '20px' }}>
+        <p><strong>Attendance for {format(selectedDate, 'yyyy-MM-dd')}:</strong></p>
+        <p>Punch In: {attendanceTimes.punch_in ? attendanceTimes.punch_in : '---'}</p>
+        <p>Punch Out: {attendanceTimes.punch_out ? attendanceTimes.punch_out : '---'}</p>
+      </div>
 
       <button
         className="btn"
