@@ -4,12 +4,14 @@ import axios from 'axios';
 
 const PrivateRoute = ({ element }) => {
   const [authenticated, setAuthenticated] = useState(null);
+  console.log("authenticated", authenticated);
 
   useEffect(() => {
     // Check session with /api/me
     axios.get('/api/me', { withCredentials: true })
       .then(response => {
         setAuthenticated(true);
+        console.log(response);
       })
       .catch(error => {
         setAuthenticated(false);
@@ -17,6 +19,7 @@ const PrivateRoute = ({ element }) => {
   }, []);
 
   if (authenticated === null) return <div>Loading...</div>;  // Handle loading state
+  
 
   return authenticated ? element : <Navigate to="/login" />;
 };

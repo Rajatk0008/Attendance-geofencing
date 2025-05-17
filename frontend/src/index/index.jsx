@@ -1,88 +1,76 @@
 import React, { useState, useEffect } from 'react';
-import DatePicker from 'react-datepicker';
-import 'react-datepicker/dist/react-datepicker.css';
 import { format } from 'date-fns';
+import Header from './header';
+import DateSelector from './DateSelector';
+import AttendanceStatus from './AttendanceStatus';
+import ActionButtons from './ActionButtons';
+import StatusMessage from './StatusMessage';
+import Clock from './Clock';
+import LocationPreview from './LocationPreview';
+import '../styles/attendance.css';
+import Logout from './Logout';
 
-const GeofencingAttendance = () => {
-  const [name, setName] = useState('');
+
+
+const GeofencingAttendance = ({ userName }) => {
   const [status, setStatus] = useState('');
   const [loading, setLoading] = useState(false);
-
-  // New states for calendar and attendance times
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [attendanceTimes, setAttendanceTimes] = useState({ punch_in: null, punch_out: null });
+  const [coords, setCoords] = useState(null);
 
-  // Fetch attendance info for the user on selectedDate whenever name or selectedDate changes
+  // Animation state
+  const [animate, setAnimate] = useState(false);
+
+  const name = userName ? userName.trim().toLowerCase() : '';
+
   useEffect(() => {
-    if (!name.trim()) {
-      setAttendanceTimes({ punch_in: null, punch_out: null });
-      return;
-    }
+    // Initial entrance animation
+    setAnimate(true);
 
+    if (!name) return;
     const fetchAttendance = async () => {
-      const formattedDate = format(selectedDate, 'yyyy-MM-dd');
-
       try {
-        const res = await fetch(`${import.meta.env.VITE_API_URL}/api/admin/user-attendance?name=${encodeURIComponent(name.trim().toLowerCase())}&date=${formattedDate}`);
-        if (!res.ok) {
-          setAttendanceTimes({ punch_in: null, punch_out: null });
-          return;
-        }
+        const formattedDate = format(selectedDate, 'yyyy-MM-dd');
+        const res = await fetch(`${import.meta.env.VITE_API_URL}/api/admin/user-attendance?name=${encodeURIComponent(name)}&date=${formattedDate}`);
+        if (!res.ok) throw new Error('Fetch failed');
         const data = await res.json();
-
         setAttendanceTimes({
           punch_in: data.punch_in || null,
           punch_out: data.punch_out || null,
         });
       } catch (err) {
-        console.error('Error fetching attendance times:', err);
+        console.error(err);
         setAttendanceTimes({ punch_in: null, punch_out: null });
       }
     };
-
     fetchAttendance();
   }, [name, selectedDate]);
 
   const handleAttendance = async (actionType) => {
-    const trimmedName = name.trim().toLowerCase();
-
-    if (!trimmedName) {
-      setStatus("❗ Please enter your name.");
-      return;
-    }
-
-    if (!navigator.geolocation) {
-      setStatus("❌ Geolocation is not supported.");
-      return;
-    }
+    if (!name) return setStatus("❗ Unable to determine user name.");
+    if (!navigator.geolocation) return setStatus("❌ Geolocation is not supported.");
 
     setLoading(true);
     setStatus("📍 Getting location...");
 
     navigator.geolocation.getCurrentPosition(
-      async (position) => {
-        const lat = position.coords.latitude;
-        const lon = position.coords.longitude;
-
+      async ({ coords }) => {
+        setCoords({ lat: coords.latitude, lon: coords.longitude });
         try {
-          const response = await fetch(`${import.meta.env.VITE_API_URL}/api/attendance`, {
+          const res = await fetch(`${import.meta.env.VITE_API_URL}/api/attendance`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-              name: trimmedName,
-              latitude: lat,
-              longitude: lon,
+              name,
+              latitude: coords.latitude,
+              longitude: coords.longitude,
               action: actionType,
             }),
           });
-
-          const data = await response.json();
+          const data = await res.json();
           setStatus(data.message);
-
-          // Refetch attendance times for today after punch in/out
-          if (actionType === 'punch_in' || actionType === 'punch_out') {
-            setSelectedDate(new Date()); // reset to today (optional)
-          }
+          setSelectedDate(new Date());
         } catch (error) {
           setStatus("⚠️ Server error: " + error.message);
         } finally {
@@ -96,75 +84,150 @@ const GeofencingAttendance = () => {
     );
   };
 
+  const containerStyle = {
+    minHeight: '100vh',
+    display: 'flex',
+    flexDirection: 'column',
+    background: 'linear-gradient(135deg, #f5f7fa 0%, #e4e9f2 100%)',
+    fontFamily: '"Inter", system-ui, -apple-system, sans-serif',
+    overflow: 'hidden',
+    position: 'relative'
+  };
+
+  const mainContentStyle = {
+    maxWidth: '800px',
+    width: '100%',
+    margin: '0 auto',
+    padding: '20px',
+    flex: '1',
+    display: 'flex',
+    flexDirection: 'column',
+    position: 'relative',
+    opacity: animate ? 1 : 0,
+    transform: animate ? 'translateY(0)' : 'translateY(20px)',
+    transition: 'opacity 0.5s ease-out, transform 0.5s ease-out'
+  };
+
+  const cardStyle = {
+    backgroundColor: 'white',
+    borderRadius: '16px',
+    boxShadow: '0 10px 25px rgba(0, 0, 0, 0.05), 0 5px 10px rgba(0, 0, 0, 0.02)',
+    padding: '24px',
+    marginBottom: '24px',
+    transition: 'transform 0.2s ease, box-shadow 0.2s ease'
+  };
+
+  const dateAndStatusContainerStyle = {
+    display: 'flex',
+    flexDirection: 'row',
+    gap: '20px',
+    flexWrap: 'wrap',
+    marginBottom: '24px'
+  };
+
+  const dateContainerStyle = {
+    ...cardStyle,
+    flex: '1',
+    minWidth: '250px',
+    marginBottom: '0'
+  };
+
+  const statusContainerStyle = {
+    ...cardStyle,
+    flex: '2',
+    minWidth: '300px',
+    marginBottom: '0'
+  };
+
+  const clockContainerStyle = {
+    ...cardStyle,
+    textAlign: 'center',
+    position: 'relative',
+    overflow: 'hidden',
+    paddingTop: '20px',
+    paddingBottom: '20px'
+  };
+
+  const locationPreviewContainerStyle = {
+    ...cardStyle
+  };
+
+  const footerStyle = {
+    textAlign: 'center',
+    padding: '24px',
+    color: '#64748b',
+    fontSize: '0.875rem'
+  };
+
+  // Decorative elements
+  const decorCircleStyle = {
+    position: 'absolute',
+    borderRadius: '50%',
+    zIndex: 0
+  };
+
   return (
-    <div style={{ padding: '20px', fontFamily: 'Arial' }}>
-      <h1>Mark Attendance</h1>
+    <div style={containerStyle}>
+      {/* Decorative circles */}
+      <div style={{
+        ...decorCircleStyle,
+        width: '300px',
+        height: '300px',
+        backgroundColor: 'rgba(59, 130, 246, 0.1)',
+        top: '-100px',
+        right: '-100px'
+      }}></div>
+      <div style={{
+        ...decorCircleStyle,
+        width: '200px',
+        height: '200px',
+        backgroundColor: 'rgba(99, 102, 241, 0.08)',
+        bottom: '10%',
+        left: '-50px'
+      }}></div>
 
-      <label htmlFor="name">Enter your name:</label><br />
-      <input
-        type="text"
-        id="name"
-        placeholder="e.g., Alice"
-        value={name}
-        onChange={(e) => setName(e.target.value)}
-        required
-        style={{ padding: '8px', marginTop: '5px', width: '250px' }}
-      />
+      <div style={mainContentStyle}>
+        <div style={{
+          marginBottom: '24px',
+          position: 'relative',
+          zIndex: 1,
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center'
+        }}>
+          <Header userName={userName} size="large" />
+          <Logout />
+        </div>
 
-      {/* Calendar */}
-      <div style={{ margin: '20px 0' }}>
-        <label><strong>Select Date:</strong></label><br />
-        <DatePicker
-          selected={selectedDate}
-          onChange={(date) => setSelectedDate(date)}
-          dateFormat="yyyy-MM-dd"
-          maxDate={new Date()}
-        />
+
+        <div style={clockContainerStyle}>
+          <Clock />
+        </div>
+
+        <div style={dateAndStatusContainerStyle}>
+          <div style={dateContainerStyle}>
+            <DateSelector selectedDate={selectedDate} setSelectedDate={setSelectedDate} />
+          </div>
+          <div style={statusContainerStyle}>
+            <AttendanceStatus selectedDate={selectedDate} times={attendanceTimes} />
+          </div>
+        </div>
+
+        <div style={cardStyle}>
+          <ActionButtons loading={loading} handleAttendance={handleAttendance} />
+          <StatusMessage message={status} />
+        </div>
+
+        {/* {coords && (
+          <div style={locationPreviewContainerStyle}>
+            <LocationPreview coords={coords} />
+          </div>
+        )} */}
       </div>
 
-      {/* Show punch in/out times for selected date */}
-      <div style={{ marginBottom: '20px' }}>
-        <p><strong>Attendance for {format(selectedDate, 'yyyy-MM-dd')}:</strong></p>
-        <p>Punch In: {attendanceTimes.punch_in ? attendanceTimes.punch_in : '---'}</p>
-        <p>Punch Out: {attendanceTimes.punch_out ? attendanceTimes.punch_out : '---'}</p>
+      <div style={footerStyle}>
+        © {new Date().getFullYear()} Attendance Geofencing System | All rights reserved
       </div>
-
-      <button
-        className="btn"
-        onClick={() => handleAttendance('punch_in')}
-        disabled={loading}
-      >
-        Punch In
-      </button>
-      <button
-        className="btn"
-        onClick={() => handleAttendance('punch_out')}
-        disabled={loading}
-      >
-        Punch Out
-      </button>
-
-      <p>{status}</p>
-      <p><a href="/register">Register a new user</a></p>
-
-      <style>{`
-        .btn {
-          padding: 10px 15px;
-          background-color: #007BFF;
-          color: white;
-          border-radius: 5px;
-          border: none;
-          cursor: pointer;
-          margin: 5px;
-        }
-        .btn:hover {
-          background-color: #0056b3;
-        }
-        .btn:disabled {
-          background-color: #999;
-          cursor: not-allowed;
-        }
-      `}</style>
     </div>
   );
 };

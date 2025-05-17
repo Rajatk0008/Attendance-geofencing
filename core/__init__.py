@@ -8,9 +8,12 @@ from flask_cors import CORS
 from core.auth import configure_oauth, oauth
 from flask_session import Session
 import os
+from flask import session
+from flask_mail import Mail
 
 db = SQLAlchemy()
 migrate = Migrate()
+mail = Mail() 
 
 def create_app():
     app = Flask(__name__)
@@ -18,22 +21,27 @@ def create_app():
     app.config.from_object(Config)
 
     # Session configuration (FIX)
-    app.config['SESSION_TYPE'] = 'filesystem'      # Store session server-side
+    app.config['SESSION_TYPE'] = 'filesystem'      
     app.config['SESSION_PERMANENT'] = False
     app.config['SESSION_USE_SIGNER'] = True
     app.config['SESSION_COOKIE_NAME'] = 'flask_session'
     app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'  # Use 'None' only if you use HTTPS and Secure=True
     app.config['SESSION_COOKIE_SECURE'] = False    # Must be False for localhost HTTP
 
+# mail initialization
+    mail.init_app(app)
+
     # Initialize session
     Session(app)
 
-    # CORS (React frontend allowed)
-    CORS(app, supports_credentials=True, origins=["http://localhost:5173"])
+    
 
     # DB
     db.init_app(app)
     migrate.init_app(app, db)
+
+    # CORS (React frontend allowed)
+    CORS(app, supports_credentials=True, origins=["http://localhost:5173"])
 
     # OAuth
     configure_oauth(app)

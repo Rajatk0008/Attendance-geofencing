@@ -1,14 +1,16 @@
 from flask import Blueprint, request, jsonify, send_file
-from datetime import datetime
+from datetime import datetime, time
 from core import db
-from core.models import User, Attendance
+from core.models import User, Attendance, UnregisteredUser
 from core.utils import is_within_geofence
 import pytz, pandas as pd, io
 
 from flask import redirect, url_for, session, jsonify
 from core.auth import oauth
 import secrets
-from sqlalchemy import func 
+from sqlalchemy import func
+from core.monthly_report import generate_and_send_monthly_report
+from flask import current_app
 
 routes_bp = Blueprint('routes_bp', __name__)
 
@@ -18,36 +20,38 @@ GEOFENCE_LON = 85.813756
 GEOFENCE_RADIUS = 200  # meters
 
 # ---------- API: Register ----------
-@routes_bp.route('/api/admin/register-user', methods=['POST'])
-def api_register():
-    data = request.get_json()
-    name = data.get('name', '').strip()
-    email = data.get('email', '').strip().lower()
-    role = data.get('role', 'user').strip().lower()  # Default to 'user' if not provided
+# @routes_bp.route('/api/admin/register-user', methods=['POST'])
+# def api_register():
+#     data = request.get_json()
+#     name = data.get('name', '').strip()
+#     email = data.get('email', '').strip().lower()
+#     role = data.get('role', 'user').strip().lower()  # Default to 'user' if not provided
 
-    # Validate name, email, and optionally role
-    if not name:
-        return jsonify({'status': 'error', 'message': 'Name is required'}), 400
-    if not email:
-        return jsonify({'status': 'error', 'message': 'Email is required'}), 400
-    if role not in ['admin', 'user']:
-        return jsonify({'status': 'error', 'message': 'Invalid role'}), 400
+#     # Validate name, email, and optionally role
+#     if not name:
+#         return jsonify({'status': 'error', 'message': 'Name is required'}), 400
+#     if not email:
+#         return jsonify({'status': 'error', 'message': 'Email is required'}), 400
+#     if role not in ['admin', 'user','superadmin']:
+#         return jsonify({'status': 'error', 'message': 'Invalid role'}), 400
 
-    # Ensure the email is unique
-    existing_user = User.query.filter_by(email=email).first()
-    if existing_user:
-        return jsonify({'status': 'error', 'message': 'User with this email already exists'}), 400
+#     # Ensure the email is unique
+#     existing_user = User.query.filter_by(email=email).first()
+#     if existing_user:
+#         return jsonify({'status': 'error', 'message': 'User with this email already exists'}), 400
 
-    try:
-        # Create and add the new user to the database
-        user = User(name=name, email=email, role=role)
-        db.session.add(user)
-        db.session.commit()
+#     try:
+#         # Create and add the new user to the database
+#         user = User(name=name, email=email, role=role)
+#         db.session.add(user)
+#         db.session.commit()
 
-        return jsonify({'status': 'success', 'message': f'✅ {role.capitalize()} registered successfully'}), 200
-    except Exception as e:
-        db.session.rollback()
-        return jsonify({'status': 'error', 'message': str(e)}), 500
+#         return jsonify({'status': 'success', 'message': f'✅ {role.capitalize()} registered successfully'}), 200
+#     except Exception as e:
+#         db.session.rollback()
+#         return jsonify({'status': 'error', 'message': str(e)}), 500
+
+
 
 # ---------- API: Mark Attendance ----------
 @routes_bp.route('/api/attendance', methods=['POST'])
@@ -112,6 +116,27 @@ def api_attendance():
         return jsonify({'status': 'success', 'message': f"🕒 Punched out for {name}"}), 200
 
     return jsonify({'status': 'error', 'message': '⚠️ Invalid action.'}), 400
+
+
+
+@routes_bp.route('/api/me')
+def api_me():
+    # print("----- Incoming /api/me request -----")
+    
+    # print(f"Request method: {request.method}")
+    # print(f"Request headers: {dict(request.headers)}")
+    # print(f"Request cookies: {request.cookies}")
+
+    # print("Session contents in /api/me:", dict(session))
+    
+    user = session.get('user')
+    
+    if not user:
+        print("User not found in session, returning 401")
+        return jsonify({'error': 'Unauthorized'}), 401
+    print("User found in session:", user)
+    return jsonify(user), 200
+
 
 
 # ---------- API: Admin Panel ----------
@@ -263,9 +288,10 @@ def auth_callback():
             'email': user.email,
             'role': user.role
         }
+        print("Session after setting user:", dict(session))  # <-- Debug this
 
         # Step 6: Redirect user based on their role
-        if user.role == 'admin':
+        if user.role == 'admin' or user.role == 'superadmin':
             return redirect("http://localhost:5173/admin") 
         else:
             return redirect("http://localhost:5173/home")  
@@ -285,19 +311,13 @@ def auth_callback():
 
 # ---------- logout ----------
 
-@routes_bp.route('/logout')
+@routes_bp.route('/logout', methods=['POST'])
 def logout():
     session.pop('user', None)
     return jsonify({'status': 'success', 'message': 'Logged out'}), 200
 
 
-# ---------- api-me ----------
-@routes_bp.route('/api/me')
-def api_me():
-    user = session.get('user')
-    if not user:
-        return jsonify({'error': 'Unauthorized'}), 401  # <- IMPORTANT
-    return jsonify(user), 200
+
 
 
         
@@ -305,40 +325,62 @@ def api_me():
     
 @routes_bp.route('/api/admin/register-user', methods=['POST'])
 def admin_register_user():
-    # Only allow access if the user is an admin (you can implement this using session or an admin flag)
-    if not session.get('user') or not session['user'].get('is_admin'):
-        return jsonify({'status': 'error', 'message': 'Access denied. Admins only.'}), 403
-
+    current_user = session.get('user')
+    if not current_user:
+        return jsonify({'status': 'error', 'message': 'Access denied. Login required.'}), 403
+    
+    current_user_role = current_user.get('role')  # e.g. 'superadmin', 'admin', 'user'
+    
     data = request.get_json()
     email = data.get('email', '').lower().strip()
     name = data.get('name', '').strip()
+    new_user_role = data.get('role', 'user').strip().lower()  # default to 'user' if not provided
 
+    # Basic validation
     if not email or not name:
         return jsonify({'status': 'error', 'message': 'Email and name are required'}), 400
+    
+    # Role validation
+    allowed_roles = ['superadmin', 'admin', 'user']
+    if new_user_role not in allowed_roles:
+        return jsonify({'status': 'error', 'message': 'Invalid role specified'}), 400
 
-    # Check if the user already exists
+    # Permission check function
+    def can_create_user(creator_role, new_role):
+        if creator_role == 'superadmin':
+            return True  # can create any role
+        elif creator_role == 'admin':
+            return new_role == 'user'  # admin can create only 'user'
+        else:
+            return False  # normal users cannot create
+
+    if not can_create_user(current_user_role, new_user_role):
+        return jsonify({'status': 'error', 'message': 'Access denied. You cannot create this type of user.'}), 403
+
+    # Check if user already exists
     existing = User.query.filter_by(email=email).first()
     if existing:
         return jsonify({'status': 'error', 'message': 'User already registered'}), 409
 
-    # Create a new user
-    user = User(name=name, email=email, registered_by_admin=True)
+    # Create user with role
+    user = User(name=name, email=email, role=new_user_role)
     db.session.add(user)
     db.session.commit()
 
-    return jsonify({'status': 'success', 'message': f'✅ User {name} registered successfully'}), 200
+    return jsonify({'status': 'success', 'message': f'✅ {new_user_role.capitalize()} {name} registered successfully'}), 200
 
-from datetime import datetime
 
+
+# ---------- fetch today attendance ----------
 @routes_bp.route('/api/admin/attendance-today', methods=['GET'])
 def get_today_attendance():
     try:
         today = datetime.today().strftime('%Y-%m-%d')
 
         # Fetch all attendance records for today
-        attendance = db.session.query(User.name, UserAttendance.punch_in, UserAttendance.punch_out, UserAttendance.device_ip) \
-            .join(UserAttendance, User.id == UserAttendance.user_id) \
-            .filter(UserAttendance.punch_in.like(f'{today}%')) \
+        attendance = db.session.query(User.name, Attendance.punch_in, Attendance.punch_out, Attendance.device_ip) \
+            .join(Attendance, User.id == Attendance.user_id) \
+            .filter(Attendance.punch_in.like(f'{today}%')) \
             .all()
 
         return jsonify([{
@@ -350,3 +392,214 @@ def get_today_attendance():
 
     except Exception as e:
         return jsonify({'status': 'error', 'message': str(e)}), 500
+    
+
+@routes_bp.route('/api/test-send-report', methods=['GET'])
+def test_send_report():
+    try:
+        # Optionally get year/month from query parameters
+        year = request.args.get('year', datetime.now().year, type=int)
+        month = request.args.get('month', datetime.now().month, type=int)
+
+        generate_and_send_monthly_report(current_app, year, month)
+        return {"status": "success", "message": f"Monthly report email sent for {month}/{year}"}, 200
+    except Exception as e:
+        return {"status": "error", "message": str(e)}, 500
+    
+
+@routes_bp.route('/api/delete-user', methods=['DELETE'])
+def delete_user():
+    
+    if 'user' not in session or 'id' not in session['user']:
+        return jsonify({'status': 'error', 'message': 'Unauthorized'}), 401
+    
+    # Get current logged-in user info
+    current_user = User.query.get(session['user']['id'])
+
+    if not current_user:
+        return jsonify({'status': 'error', 'message': 'Unauthorized'}), 401
+
+    data = request.get_json()
+    email_to_delete = data.get('email')
+
+    if not email_to_delete:
+        return jsonify({'status': 'error', 'message': 'Email is required'}), 400
+
+    user_to_delete = User.query.filter_by(email=email_to_delete).first()
+    if not user_to_delete:
+        return jsonify({'status': 'error', 'message': 'User not found'}), 404
+
+    # Authorization logic
+    if current_user.role == 'superadmin':
+        # superadmin can delete anyone except themselves (optional)
+        if user_to_delete.id == current_user.id:
+            return jsonify({'status': 'error', 'message': 'You cannot delete yourself'}), 400
+
+    elif current_user.role == 'admin':
+        # admin can only delete users with role 'user'
+        if user_to_delete.role != 'user':
+            return jsonify({'status': 'error', 'message': 'Admins can only delete regular users'}), 403
+        if user_to_delete.id == current_user.id:
+            return jsonify({'status': 'error', 'message': 'You cannot delete yourself'}), 400
+
+    else:
+        return jsonify({'status': 'error', 'message': 'Unauthorized'}), 401
+
+    # Perform deletion
+    db.session.delete(user_to_delete)
+    db.session.commit()
+
+    return jsonify({'status': 'success', 'message': f'User {email_to_delete} deleted'}), 200
+
+
+
+
+
+
+
+# ---------- post users from UR page ----------
+@routes_bp.route('/api/request-registration', methods=['POST'])
+def request_registration():
+    data = request.get_json()
+    name = data.get('name')
+    email = data.get('email')
+
+    if not name or not email:
+        return jsonify({'status': 'error', 'message': 'Name and email required'}), 400
+
+    # Check if email already exists in UnregisteredUser to avoid duplicates
+    existing_user = UnregisteredUser.query.filter_by(email=email).first()
+    if existing_user:
+        return jsonify({'status': 'error', 'message': 'This email is already submitted for registration'}), 409
+
+    # Create new unregistered user record
+    new_unregistered_user = UnregisteredUser(name=name, email=email)
+    db.session.add(new_unregistered_user)
+    db.session.commit()
+
+    print(f"📩 Registration request received: {name} <{email}> and stored in DB")
+
+    return jsonify({'status': 'success', 'message': 'Registration request submitted'}), 200
+
+
+
+# ---------- Get users admin ----------
+@routes_bp.route('/api/unregistered-users', methods=['GET'])
+def get_unregistered_users():
+    # Optional: check if current user is admin or superadmin here
+    unregistered = UnregisteredUser.query.all()
+    result = [
+        {'id': u.id, 'name': u.name, 'email': u.email, 'role': u.role}
+        for u in unregistered
+    ]
+    return jsonify(result), 200
+
+# ---------- Accept unregistered user ----------
+
+@routes_bp.route('/api/unregistered-users/<int:user_id>/accept', methods=['POST'])
+def accept_unregistered_user(user_id):
+    unreg_user = UnregisteredUser.query.get_or_404(user_id)
+
+    # Check if email already in User
+    existing_user = User.query.filter_by(email=unreg_user.email).first()
+    if existing_user:
+        # Remove from unregistered anyway because they exist in User table already
+        db.session.delete(unreg_user)
+        db.session.commit()
+        return jsonify({'status': 'error', 'message': 'User already registered'}), 409
+
+    # Create a new User with role 'user'
+    new_user = User(name=unreg_user.name, email=unreg_user.email, role='user')
+    db.session.add(new_user)
+    db.session.delete(unreg_user)
+    db.session.commit()
+
+    return jsonify({'status': 'success', 'message': 'User accepted and added'}), 200
+
+# ---------- Reject unregistered user ----------
+@routes_bp.route('/api/unregistered-users/<int:user_id>/reject', methods=['POST'])
+def reject_unregistered_user(user_id):
+    unreg_user = UnregisteredUser.query.get_or_404(user_id)
+    db.session.delete(unreg_user)
+    db.session.commit()
+    return jsonify({'status': 'success', 'message': 'User rejected and removed'}), 200
+
+# ---------- Update user details ----------
+@routes_bp.route('/api/admin/update-user', methods=['PUT'])
+def update_user():
+    data = request.get_json()
+    user_id = data.get('id')
+    new_name = data.get('name')
+    new_email = data.get('email')
+    new_role = data.get('role')
+
+    user = User.query.get(user_id)
+    if not user:
+        return jsonify({'status': 'error', 'message': 'User not found'}), 404
+
+    if new_name:
+        user.name = new_name
+    if new_email:
+        user.email = new_email
+    if new_role:
+        user.role = new_role
+
+    db.session.commit()
+    return jsonify({'status': 'success', 'message': 'User updated'})
+
+# ---------- Get all users ----------
+@routes_bp.route('/api/admin/users', methods=['GET'])
+def get_all_users():
+    users = User.query.all()
+    return jsonify([
+        {
+            'id': user.id,
+            'name': user.name,
+            'email': user.email,
+            'role': user.role
+        } for user in users
+    ])
+
+# ---------- Update punch in status ----------
+
+@routes_bp.route('/api/admin/punchupdate', methods=['PUT'])  # Or your custom role check decorator
+def update_attendance():
+    data = request.get_json()
+    user_id = data.get('user_id')
+    date_str = data.get('date')  # e.g., '2025-05-16'
+    punch_in_time = data.get('punch_in')  # expected format: 'HH:MM'
+    punch_out_time = data.get('punch_out')  # expected format: 'HH:MM'
+
+    if not user_id or not date_str:
+        return jsonify({'status': 'error', 'message': 'User ID and date are required'}), 400
+
+    try:
+        # Parse date
+        date = datetime.strptime(date_str, '%Y-%m-%d').date()
+
+        # Fetch or create attendance record
+        attendance = Attendance.query.filter_by(user_id=user_id, date=date).first()
+        if not attendance:
+            attendance = Attendance(user_id=user_id, date=date)
+
+        # Update punch-in time
+        if punch_in_time:
+            h_in, m_in = map(int, punch_in_time.split(':'))
+            attendance.punch_in_time = datetime.combine(date, time(h_in, m_in))
+            print(f"✅ Punch-in updated to {attendance.punch_in_time}")
+
+        # Update punch-out time
+        if punch_out_time:
+            h_out, m_out = map(int, punch_out_time.split(':'))
+            attendance.punch_out_time = datetime.combine(date, time(h_out, m_out))
+            print(f"✅ Punch-out updated to {attendance.punch_out_time}")
+
+        db.session.add(attendance)
+        db.session.commit()
+
+        return jsonify({'status': 'success', 'message': 'Attendance updated successfully'}), 200
+
+    except Exception as e:
+        print(f"Error updating attendance: {e}")
+        return jsonify({'status': 'error', 'message': 'Internal server error'}), 500
+

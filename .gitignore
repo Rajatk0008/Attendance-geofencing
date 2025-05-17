@@ -1,3 +1,5 @@
 .env
 menv
 node_modules
+menv
+__pycache__

@@ -1,12 +1,13 @@
 import React, { useEffect, useState } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate, useNavigate } from 'react-router-dom';
 import GeofencingAttendance from './index/index';
-import RegisterUser from './register/register';
+// import RegisterUser from './register/register';
 import AdminPanel from './adminn/admin';
 import LoginPage from './login/login';
 import UnregisteredPage from './login/unregistered';
 
-const ProtectedRoute = ({ children }) => {
+
+const ProtectedRoute = ({ children, setUserName, allowedRoles = [] }) => {
   const [loading, setLoading] = useState(true);
   const [authenticated, setAuthenticated] = useState(false);
   const [redirect, setRedirect] = useState(null);
@@ -25,7 +26,13 @@ const ProtectedRoute = ({ children }) => {
         if (!data.email || !data.role) {
           setRedirect('/unregistered');
         } else {
-          setAuthenticated(true);
+          setUserName(data.name);
+          // Role check
+          if (allowedRoles.length > 0 && !allowedRoles.includes(data.role.toLowerCase())) {
+            setRedirect('/home'); // or a custom unauthorized page
+          } else {
+            setAuthenticated(true);
+          }
         }
       })
       .catch(err => {
@@ -44,33 +51,41 @@ const ProtectedRoute = ({ children }) => {
   return authenticated ? children : null;
 };
 
+
 const App = () => {
+  const [userName, setUserName] = useState(null);
   return (
     <Router>
       <Routes>
         {/* Always redirect root to /login */}
         <Route path="/" element={<Navigate to="/login" replace />} />
 
-        <Route path="/login" element={<LoginPage />} />
+        <Route path="/login" element={
+          <LoginPage />
+        } />
         <Route path="/unregistered" element={<UnregisteredPage />} />
-        <Route path="/register" element={<RegisterUser />} />
+        {/* <Route path="/register" element={<RegisterUser />} /> */}
 
-        <Route
-          path="/home"
-          element={
-            <ProtectedRoute>
-              <GeofencingAttendance />
-            </ProtectedRoute>
-          }
-        />
         <Route
           path="/admin"
           element={
-            <ProtectedRoute>
+            <ProtectedRoute setUserName={setUserName} allowedRoles={['superadmin', 'admin']}>
               <AdminPanel />
             </ProtectedRoute>
           }
         />
+
+        <Route
+          path="/home"
+          element={
+            <ProtectedRoute setUserName={setUserName} allowedRoles={['user', 'admin', 'superadmin']}>
+              <GeofencingAttendance userName={userName} />
+            </ProtectedRoute>
+          }
+        />
+
+        
+
       </Routes>
     </Router>
   );
