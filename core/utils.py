@@ -13,4 +13,6 @@ def is_within_geofence(lat, lon):
     GEOFENCE_LAT = 20.294776
     GEOFENCE_LON = 85.813756
     GEOFENCE_RADIUS = 200  # meters
+    print(lat,lon)
+    print(haversine(GEOFENCE_LAT, GEOFENCE_LON, lat, lon) <= GEOFENCE_RADIUS)
     return haversine(GEOFENCE_LAT, GEOFENCE_LON, lat, lon) <= GEOFENCE_RADIUS

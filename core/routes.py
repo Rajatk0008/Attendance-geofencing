@@ -1,6 +1,6 @@
 from flask import Blueprint, request, jsonify, send_file
 from datetime import datetime, time
-from core import db
+from core.extensions import db
 from core.models import User, Attendance, UnregisteredUser
 from core.utils import is_within_geofence
 import pytz, pandas as pd, io
@@ -11,6 +11,12 @@ import secrets
 from sqlalchemy import func
 from core.monthly_report import generate_and_send_monthly_report
 from flask import current_app
+from datetime import timedelta
+import face_recognition
+import base64
+from PIL import Image
+import numpy as np
+from io import BytesIO
 
 routes_bp = Blueprint('routes_bp', __name__)
 
@@ -18,38 +24,6 @@ local_timezone = pytz.timezone('Asia/Kolkata')
 GEOFENCE_LAT = 20.294776
 GEOFENCE_LON = 85.813756
 GEOFENCE_RADIUS = 200  # meters
-
-# ---------- API: Register ----------
-# @routes_bp.route('/api/admin/register-user', methods=['POST'])
-# def api_register():
-#     data = request.get_json()
-#     name = data.get('name', '').strip()
-#     email = data.get('email', '').strip().lower()
-#     role = data.get('role', 'user').strip().lower()  # Default to 'user' if not provided
-
-#     # Validate name, email, and optionally role
-#     if not name:
-#         return jsonify({'status': 'error', 'message': 'Name is required'}), 400
-#     if not email:
-#         return jsonify({'status': 'error', 'message': 'Email is required'}), 400
-#     if role not in ['admin', 'user','superadmin']:
-#         return jsonify({'status': 'error', 'message': 'Invalid role'}), 400
-
-#     # Ensure the email is unique
-#     existing_user = User.query.filter_by(email=email).first()
-#     if existing_user:
-#         return jsonify({'status': 'error', 'message': 'User with this email already exists'}), 400
-
-#     try:
-#         # Create and add the new user to the database
-#         user = User(name=name, email=email, role=role)
-#         db.session.add(user)
-#         db.session.commit()
-
-#         return jsonify({'status': 'success', 'message': f'✅ {role.capitalize()} registered successfully'}), 200
-#     except Exception as e:
-#         db.session.rollback()
-#         return jsonify({'status': 'error', 'message': str(e)}), 500
 
 
 
@@ -460,27 +434,40 @@ def delete_user():
 # ---------- post users from UR page ----------
 @routes_bp.route('/api/request-registration', methods=['POST'])
 def request_registration():
-    data = request.get_json()
-    name = data.get('name')
-    email = data.get('email')
+    try:
+        data = request.get_json()
+        name = data.get('name')
+        email = data.get('email')
+        image_base64 = data.get('image')  # Base64 face photo
 
-    if not name or not email:
-        return jsonify({'status': 'error', 'message': 'Name and email required'}), 400
+        if not name or not email or not image_base64:
+            return jsonify({'error': 'Name, email, and face photo required'}), 400
 
-    # Check if email already exists in UnregisteredUser to avoid duplicates
-    existing_user = UnregisteredUser.query.filter_by(email=email).first()
-    if existing_user:
-        return jsonify({'status': 'error', 'message': 'This email is already submitted for registration'}), 409
+        # Check if email already exists in User or UnregisteredUser
+        if User.query.filter_by(email=email).first() or UnregisteredUser.query.filter_by(email=email).first():
+            return jsonify({'error': 'Email already registered or pending'}), 409
 
-    # Create new unregistered user record
-    new_unregistered_user = UnregisteredUser(name=name, email=email)
-    db.session.add(new_unregistered_user)
-    db.session.commit()
+        # Process face encoding
+        image_data = base64.b64decode(image_base64.split(',')[-1])
+        image = np.array(Image.open(BytesIO(image_data)))
+        encodings = face_recognition.face_encodings(image)
+        if not encodings:
+            return jsonify({'error': 'No face detected in the photo'}), 400
 
-    print(f"📩 Registration request received: {name} <{email}> and stored in DB")
+        # Create new unregistered user record
+        new_unregistered_user = UnregisteredUser(
+            name=name,
+            email=email,
+            face_encoding=encodings[0].tobytes()
+        )
+        db.session.add(new_unregistered_user)
+        db.session.commit()
 
-    return jsonify({'status': 'success', 'message': 'Registration request submitted'}), 200
+        print(f"📩 Registration request received: {name} <{email}> with face encoding")
 
+        return jsonify({'success': True, 'message': 'Registration request submitted'}), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 
 # ---------- Get users admin ----------
@@ -509,7 +496,12 @@ def accept_unregistered_user(user_id):
         return jsonify({'status': 'error', 'message': 'User already registered'}), 409
 
     # Create a new User with role 'user'
-    new_user = User(name=unreg_user.name, email=unreg_user.email, role='user')
+    new_user = User(
+        name=unreg_user.name,
+        email=unreg_user.email,
+        role='user',
+        face_encoding=unreg_user.face_encoding 
+    )
     db.session.add(new_user)
     db.session.delete(unreg_user)
     db.session.commit()
