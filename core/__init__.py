@@ -34,7 +34,10 @@ def create_app():
 
     # CORS
     # CORS(app, supports_credentials=True, origins=["http://localhost:5173"])
-    CORS(app, supports_credentials=True, resources={r"/api/*": {"origins": "*"}})
+    CORS(app, supports_credentials=True, resources={
+        r"/api/*": {"origins": "*"},
+        r"/logout": {"origins": "http://localhost:5173"}
+        })
 
     # OAuth
     configure_oauth(app)

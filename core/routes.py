@@ -216,7 +216,7 @@ def api_download_attendance():
 def login():
     nonce = secrets.token_urlsafe(32)
     session['nonce'] = nonce
-    print("Session set before redirect:", dict(session))  # <-- Debug this
+    # print("Session set before redirect:", dict(session))  # <-- Debug this
 
     redirect_uri = url_for('routes_bp.auth_callback', _external=True)
     return oauth.google.authorize_redirect(redirect_uri, nonce=nonce)
@@ -231,7 +231,7 @@ def auth_callback():
         print("Session on callback:", dict(session))
         # Step 1: Exchange code for token
         token = oauth.google.authorize_access_token()
-        print("Token:", token)
+        # print("Token:", token)
 
         # Step 2: Verify and parse ID token with nonce for CSRF protection
         nonce = session.pop('nonce', None)
@@ -262,7 +262,7 @@ def auth_callback():
             'email': user.email,
             'role': user.role
         }
-        print("Session after setting user:", dict(session))  # <-- Debug this
+        # print("Session after setting user:", dict(session))  # <-- Debug this
 
         # Step 6: Redirect user based on their role
         if user.role == 'admin' or user.role == 'superadmin':
@@ -443,18 +443,21 @@ def request_registration():
         if not name or not email or not image_base64:
             return jsonify({'error': 'Name, email, and face photo required'}), 400
 
-        # Check if email already exists in User or UnregisteredUser
+        # Check for duplicate email
         if User.query.filter_by(email=email).first() or UnregisteredUser.query.filter_by(email=email).first():
             return jsonify({'error': 'Email already registered or pending'}), 409
 
-        # Process face encoding
+        # Decode and process the base64 image
         image_data = base64.b64decode(image_base64.split(',')[-1])
-        image = np.array(Image.open(BytesIO(image_data)))
+        pil_image = Image.open(BytesIO(image_data)).convert('RGB')  # Ensure image is RGB
+        image = np.array(pil_image)
+
+        # Detect face encodings
         encodings = face_recognition.face_encodings(image)
         if not encodings:
             return jsonify({'error': 'No face detected in the photo'}), 400
 
-        # Create new unregistered user record
+        # Save unregistered user
         new_unregistered_user = UnregisteredUser(
             name=name,
             email=email,
@@ -466,6 +469,7 @@ def request_registration():
         print(f"📩 Registration request received: {name} <{email}> with face encoding")
 
         return jsonify({'success': True, 'message': 'Registration request submitted'}), 200
+
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 

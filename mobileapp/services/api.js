@@ -59,9 +59,10 @@ export const verifyFace = async (base64Image) => {
     const data = await response.json();
     console.log('verifyFace response:', data);
     if (!response.ok) {
-      return { error: data.error || `HTTP error ${response.status}` };
+      return { error: data.error || `Face Verification Failed ${response.status}` };
     }
-    return data;
+
+    return data; // Expect { success: true, userId, role, message, userData: { name, email, punchInTime, punchOutTime } }
   } catch (error) {
     console.error('verifyFace error:', error.name, error.message);
     if (error.name === 'AbortError') {
@@ -70,3 +71,63 @@ export const verifyFace = async (base64Image) => {
     return { error: 'Failed to verify face. Check network or server.' };
   }
 };
+
+// Keep this only if you still use it elsewhere in your app
+export async function fetchUserData(userId) {
+  try {
+    const url = `${API_URL.replace(/\/$/, '')}/api/user/${userId}`;
+    console.log('Fetching user data from:', url);
+    const response = await fetch(url, {
+      method: 'GET',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include', // Only required for session-based routes
+    });
+
+    const contentType = response.headers.get('content-type');
+    if (!contentType || !contentType.includes('application/json')) {
+      const text = await response.text();
+      console.error('Non-JSON response:', text.slice(0, 200));
+      return { error: `Server returned non-JSON response: ${text.slice(0, 100)}` };
+    }
+
+    const data = await response.json();
+    console.log('fetchUserData response:', data);
+    if (!response.ok) {
+      return { error: data.error || `HTTP error ${response.status}` };
+    }
+    return data; // Expect { name, email, role, attendanceHistory }
+  } catch (error) {
+    console.error('fetchUserData error:', error.name, error.message);
+    return { error: 'Failed to fetch user data. Check network or server.' };
+  }
+}
+
+
+// export async function fetchUserData(userId) {
+//   try {
+//     const url = `${API_URL.replace(/\/$/, '')}/api/user/${userId}`;
+//     console.log('Fetching user data from:', url);
+//     const response = await fetch(url, {
+//       method: 'GET',
+//       headers: { 'Content-Type': 'application/json' },
+//       credentials: 'include', // Include cookies for session-based auth
+//     });
+
+//     const contentType = response.headers.get('content-type');
+//     if (!contentType || !contentType.includes('application/json')) {
+//       const text = await response.text();
+//       console.error('Non-JSON response:', text.slice(0, 200));
+//       return { error: `Server returned non-JSON response: ${text.slice(0, 100)}` };
+//     }
+
+//     const data = await response.json();
+//     console.log('fetchUserData response:', data);
+//     if (!response.ok) {
+//       return { error: data.error || `HTTP error ${response.status}` };
+//     }
+//     return data; // Expect { name, email, role, attendanceHistory }
+//   } catch (error) {
+//     console.error('fetchUserData error:', error.name, error.message);
+//     return { error: 'Failed to fetch user data. Check network or server.' };
+//   }
+// }
